@@ -1,0 +1,225 @@
+﻿@page "/"
+
+@using Balance.Models
+@using Balance.Services
+
+@inject ExpenseService ExpenseService
+
+<PageTitle>Balance</PageTitle>
+
+<header class="app-header">
+    <h1>Balance</h1>
+    <p>Wspólne wydatki</p>
+</header>
+
+<section class="balance-card">
+
+    <span class="balance-label">DO ROZLICZENIA</span>
+
+    <div class="balance-amount">
+        @Math.Abs(ExpenseService.GetBalance()).ToString("0.00") zł
+    </div>
+
+    @if (ExpenseService.GetBalance() > 0)
+    {
+        <p>Partnerka → Ty</p>
+    }
+    else if (ExpenseService.GetBalance() < 0)
+    {
+        <p>Ty → Partnerka</p>
+    }
+    else
+    {
+        <p>Jesteście rozliczeni 🎉</p>
+    }
+
+</section>
+
+<section class="expense-form">
+
+    <h2>Nowy wydatek</h2>
+
+    <div class="form-group">
+        <label>Kwota</label>
+
+        <div class="amount-input">
+            <input type="number"
+                   step="0.01"
+                   placeholder="0,00"
+                   @bind="newExpense.Amount" />
+
+            <span>zł</span>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Opis</label>
+
+        <input type="text"
+               placeholder="np. Kolacja"
+               @bind="newExpense.Description" />
+    </div>
+
+    <div class="form-group">
+        <label>Kategoria</label>
+
+        <select @bind="newExpense.Category">
+            <option value="Food">Jedzenie</option>
+            <option value="Transport">Transport</option>
+            <option value="Hotel">Nocleg</option>
+            <option value="Shopping">Zakupy</option>
+            <option value="Other">Inne</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Zapłacił</label>
+
+        <select @bind="newExpense.PaidBy">
+            <option value="Me">Ja</option>
+            <option value="Partner">Partnerka</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Mój udział (%)</label>
+
+        <input type="number"
+               min="0"
+               max="100"
+               @bind="newExpense.MyShare" />
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <p class="error-message">@errorMessage</p>
+    }
+
+    <button class="add-button" @onclick="AddExpense">
+        Dodaj wydatek
+    </button>
+
+</section>
+
+<hr />
+
+<section class="history-section">
+
+    <div class="section-header">
+        <h2>Historia</h2>
+
+        <span>
+            @ExpenseService.Expenses.Count wydatków
+        </span>
+    </div>
+
+    @if (ExpenseService.Expenses.Count == 0)
+    {
+        <div class="empty-state">
+            <p>Brak wydatków.</p>
+            <span>Dodaj pierwszy wydatek powyżej.</span>
+        </div>
+    }
+    else
+    {
+        <div class="expense-list">
+
+            @foreach (var expense in ExpenseService.Expenses.Reverse())
+            {
+                <article class="expense-card">
+
+                    <div class="expense-main">
+
+                        <div>
+                            <h3>@expense.Description</h3>
+
+                            <p>
+                                @expense.Category
+                                ·
+                                @(expense.PaidBy == "Me" ? "Ja" : "Partnerka")
+                            </p>
+                        </div>
+
+                        <div class="expense-price">
+                            @expense.Amount.ToString("0.00") zł
+                        </div>
+
+                    </div>
+
+                    <div class="expense-footer">
+
+                        <span>
+                            Podział:
+                            @expense.MyShare.ToString("0")%
+                            /
+                            @(100 - expense.MyShare)%
+                        </span>
+
+                        <button class="delete-button"
+                                @onclick="() => DeleteExpense(expense.Id)">
+                            Usuń
+                        </button>
+
+                    </div>
+
+                </article>
+            }
+
+        </div>
+    }
+
+</section>
+
+@code
+{
+    private string errorMessage = "";
+
+    private Expense newExpense = new()
+    {
+        Date = DateTime.Now,
+        Category = "Food",
+        PaidBy = "Me"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ExpenseService.LoadAsync();
+    }
+
+    private async Task AddExpense()
+    {
+        errorMessage = "";
+
+        if (newExpense.Amount <= 0)
+        {
+            errorMessage = "Kwota musi być większa od zera.";
+            return;
+        }
+
+        if (newExpense.MyShare < 0 || newExpense.MyShare > 100)
+        {
+            errorMessage = "Mój udział musi być w przedziale od 0 do 100.";
+            return;
+        }
+
+        if (string.IsNullOrEmpty(newExpense.Description))
+        {
+            errorMessage = "Podaj opis wydatku.";
+            return;
+        }
+
+		await ExpenseService.AddExpenseAsync(newExpense);
+
+		newExpense = new Expense
+		{
+			Date = DateTime.Now,
+			Category = "Food",
+			PaidBy = "Me"
+		};
+    }
+
+	private async Task DeleteExpense(int id)
+	{
+		await ExpenseService.DeleteExpenseAsync(id);
+	}
+}
