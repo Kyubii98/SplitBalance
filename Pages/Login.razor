@@ -1,0 +1,75 @@
+﻿@page "/login"
+@using Supabase.Gotrue
+@inject Supabase.Client Supabase
+@inject NavigationManager Navigation
+
+<h1>SplitBalance</h1>
+
+<h2>Logowanie</h2>
+
+    <input type="email"
+           placeholder="Email"
+           @bind="email" />
+
+    <input type="password"
+           placeholder="Hasło"
+           @bind="password" />
+
+    <button @onclick="HandleLogin">
+        Zaloguj
+    </button>
+
+<button @onclick="HandleSignUp">
+    Załóż konto
+</button>
+
+//<p>@message</p>
+
+@code {
+    private string email = "";
+    private string password = "";
+    private string message = "";
+
+    private async Task HandleLogin()
+    {
+        try
+        {
+            var session = await Supabase.Auth.SignIn(
+                email,
+                password
+            );
+
+            if (session?.User != null)
+            {
+                Navigation.NavigateTo("/households");
+            }
+            else
+            {
+                message = "Nie udało się zalogować.";
+            }
+        }
+        catch (Exception ex)
+        {
+            message = ex.Message;
+        }
+    }
+
+    private async Task HandleSignUp()
+    {
+        try
+        {
+            var session = await Supabase.Auth.SignUp(
+                email,
+                password
+            );
+
+            message = session?.User != null
+                ? "Konto utworzone! Sprawdź email."
+                : "Nie udało się utworzyć konta.";
+        }
+        catch (Exception ex)
+        {
+            message = ex.Message;
+        }
+    }
+}
