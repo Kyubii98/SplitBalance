@@ -1,0 +1,780 @@
+﻿@page "/household/{HouseholdId:guid}"
+@using Balance.Models
+@inject Supabase.Client Supabase
+@using Newtonsoft.Json
+
+<PageTitle>Balance</PageTitle>
+
+<header class="app-header">
+	<h1>Balance</h1>
+	<p>Wspólne wydatki</p>
+</header>
+
+<section class="balance-card">
+
+	<span class="balance-label">DO ROZLICZENIA</span>
+
+	<div class="balance-amount">
+		@Math.Abs(GetMyBalance()).ToString("0.00") zł
+	</div>
+
+	@if (GetMyBalance() == 0)
+	{
+		<p>Jesteście rozliczeni 🎉</p>
+	}
+	else
+	{
+		@foreach (var settlement in GetMySettlements())
+		{
+			if (settlement.Amount > 0)
+			{
+				<p>
+					@GetMemberLabel(settlement.OtherUserId)
+					→ Ty:
+					@settlement.Amount.ToString("0.00") zł
+				</p>
+			}
+			else
+			{
+				<p>
+					Ty →
+					@GetMemberLabel(settlement.OtherUserId):
+					@Math.Abs(settlement.Amount).ToString("0.00") zł
+				</p>
+			}
+		}
+	}
+
+</section>
+
+<section class="expense-form">
+
+	<h2>Nowy wydatek</h2>
+
+	<div class="form-group">
+		<label>Kwota</label>
+
+		<div class="amount-input">
+			<input type="number"
+				   step="0.01"
+				   placeholder="0,00"
+				   @bind="newAmount" />
+
+			<span>zł</span>
+		</div>
+	</div>
+
+	<div class="form-group">
+		<label>Opis</label>
+
+		<input type="text"
+			   placeholder="np. Kolacja"
+			   @bind="newDescription" />
+	</div>
+
+	<div class="form-group">
+		<label>Kategoria</label>
+
+		<select @bind="newCategory">
+			<option value="Food">Jedzenie</option>
+			<option value="Transport">Transport</option>
+			<option value="Hotel">Nocleg</option>
+			<option value="Shopping">Zakupy</option>
+			<option value="Other">Inne</option>
+		</select>
+	</div>
+
+	<div class="form-group">
+		<label>Zapłacił</label>
+
+		<select @bind="selectedPayerId">
+			@foreach (var member in members)
+			{
+				<option value="@member.UserId">
+					@GetMemberLabel(member.UserId)
+				</option>
+			}
+		</select>
+	</div>
+
+	<div class="form-group">
+		<label>Podział</label>
+
+		@foreach (var member in members)
+		{
+			<div class="split-row">
+
+				<input type="checkbox"
+					   checked="@selectedMembers[member.UserId]"
+					   @onchange="e => ToggleMember(member.UserId, (bool)e.Value!)" />
+
+				<span>
+					@GetMemberLabel(member.UserId)
+				</span>
+
+				<input type="number"
+					   min="0"
+					   max="100"
+					   step="1"
+					   disabled="@(!selectedMembers[member.UserId])"
+					   @bind="memberShares[member.UserId]" />
+
+				<span>%</span>
+
+			</div>
+		}
+
+		<button type="button"
+				@onclick="SplitEqually">
+			Podziel po równo
+		</button>
+	</div>
+
+	@if (!string.IsNullOrEmpty(errorMessage))
+	{
+		<p class="error-message">@errorMessage</p>
+	}
+
+	<button class="add-button"
+			@onclick="AddExpense">
+		Dodaj wydatek
+	</button>
+
+</section>
+
+<hr />
+
+<section class="history-section">
+
+	<div class="section-header">
+		<h2>Historia</h2>
+
+		<span>
+			@expenses.Count wydatków
+		</span>
+	</div>
+
+	@if (expenses.Count == 0)
+	{
+		<div class="empty-state">
+			<p>Brak wydatków.</p>
+			<span>Dodaj pierwszy wydatek powyżej.</span>
+		</div>
+	}
+	else
+	{
+		<div class="expense-list">
+
+			@foreach (var expense in expenses
+				.OrderByDescending(x => x.Date))
+			{
+				<article class="expense-card">
+
+					@if (editingExpenseId == expense.Id)
+					{
+						<div class="form-group">
+							<label>Opis</label>
+							<input @bind="editDescription" />
+						</div>
+
+						<div class="form-group">
+							<label>Kwota</label>
+							<input type="number"
+								   step="0.01"
+								   @bind="editAmount" />
+						</div>
+
+						<div class="form-group">
+							<label>Zapłacił</label>
+
+							<select @bind="editPayerId">
+								@foreach (var member in members)
+								{
+									<option value="@member.UserId">
+										@GetMemberLabel(member.UserId)
+									</option>
+								}
+							</select>
+						</div>
+
+						<div class="form-group">
+							<label>Podział</label>
+
+							@foreach (var member in members)
+							{
+								<div class="split-row">
+
+									<input type="checkbox"
+										   checked="@editSelectedMembers[member.UserId]"
+										   @onchange="e => ToggleEditMember(member.UserId, (bool)e.Value!)" />
+
+									<span>@GetMemberLabel(member.UserId)</span>
+
+									<input type="number"
+										   min="0"
+										   max="100"
+										   step="1"
+										   disabled="@(!editSelectedMembers[member.UserId])"
+										   @bind="editMemberShares[member.UserId]" />
+
+									<span>%</span>
+
+								</div>
+							}
+
+							<button type="button"
+									@onclick="SplitEditEqually">
+								Podziel po równo
+							</button>
+						</div>
+
+						<div class="expense-footer">
+							<button @onclick="() => SaveEdit(expense)">
+								Zapisz
+							</button>
+
+							<button @onclick="CancelEdit">
+								Anuluj
+							</button>
+						</div>
+					}
+					else
+					{
+						<div class="expense-main">
+
+							<div>
+								<h3>@expense.Description</h3>
+
+								<p>
+									@expense.Category
+								</p>
+
+								<p>
+									Zapłacił: <strong>@GetPayerLabel(expense)</strong>
+								</p>
+							</div>
+
+							<div class="expense-price">
+								@expense.Amount.ToString("0.00") zł
+							</div>
+
+						</div>
+
+						<div class="expense-split-details">
+
+							@foreach (var split in GetExpenseSplitDetails(expense))
+							{
+								<div class="expense-split-line">
+
+									<span>@split.Label</span>
+
+									<span>
+										@split.Percent.ToString("0.##")%
+										·
+										@split.Amount.ToString("0.00") zł
+									</span>
+
+								</div>
+							}
+
+						</div>
+
+						<div class="expense-footer">
+
+							<span>
+								@(expense.Date.ToLocalTime().ToString("dd.MM.yyyy"))
+							</span>
+
+							<div>
+								<button @onclick="() => StartEdit(expense)">
+									Edytuj
+								</button>
+
+								<button class="delete-button"
+										@onclick="() => DeleteExpense(expense)">
+									Usuń
+								</button>
+							</div>
+
+						</div>
+					}
+
+				</article>
+			}
+
+		</div>
+	}
+
+</section>
+
+@code
+{
+	[Parameter]
+	public Guid HouseholdId { get; set; }
+
+	private List<SupabaseExpense> expenses = new();
+	private List<HouseholdMemberInfo> members = new();
+	private List<ExpenseSplit> splits = new();
+
+	private Guid selectedPayerId;
+
+	private Dictionary<Guid, bool> selectedMembers = new();
+	private Dictionary<Guid, decimal> memberShares = new();
+
+	private decimal newAmount;
+	private string newDescription = "";
+	private string newCategory = "Food";
+
+	private string errorMessage = "";
+
+	private Guid? editingExpenseId;
+	private string editDescription = "";
+	private decimal editAmount;
+
+	private Guid editPayerId;
+
+	private Dictionary<Guid, bool> editSelectedMembers = new();
+	private Dictionary<Guid, decimal> editMemberShares = new();
+
+
+	protected override async Task OnInitializedAsync()
+	{
+		await LoadMembers();
+
+		var currentUser = Supabase.Auth.CurrentUser;
+
+		if (currentUser != null)
+		{
+			selectedPayerId = Guid.Parse(currentUser.Id);
+		}
+
+		foreach (var member in members)
+		{
+			selectedMembers[member.UserId] = true;
+			memberShares[member.UserId] = members.Count > 0
+				? 100m / members.Count
+				: 0;
+		}
+
+		await LoadExpenses();
+		await LoadSplits();
+	}
+
+	private async Task LoadMembers()
+	{
+		var response = await Supabase.Rpc(
+			"get_household_members_with_email",
+			new
+			{
+				target_household_id = HouseholdId
+			}
+		);
+
+		members = JsonConvert.DeserializeObject<List<HouseholdMemberInfo>>(
+			response.Content
+		) ?? new List<HouseholdMemberInfo>();
+	}
+
+	private string GetMemberLabel(Guid userId)
+	{
+		var currentUser = Supabase.Auth.CurrentUser;
+
+		if (currentUser != null &&
+			Guid.Parse(currentUser.Id) == userId)
+		{
+			return $"Ja ({currentUser.Email})";
+		}
+
+		var member = members.FirstOrDefault(x => x.UserId == userId);
+
+		return member?.Email ?? "Nieznany użytkownik";
+	}
+
+	private void ToggleMember(Guid userId, bool isSelected)
+	{
+		selectedMembers[userId] = isSelected;
+
+		if (!isSelected)
+		{
+			memberShares[userId] = 0;
+		}
+
+		SplitEqually();
+	}
+
+	private void SplitEqually()
+	{
+		var activeMembers = selectedMembers
+			.Where(x => x.Value)
+			.Select(x => x.Key)
+			.ToList();
+
+		if (activeMembers.Count == 0)
+			return;
+
+		var share = 100m / activeMembers.Count;
+
+		foreach (var member in members)
+		{
+			memberShares[member.UserId] =
+				activeMembers.Contains(member.UserId)
+				? share
+				: 0;
+		}
+	}
+
+	private void ToggleEditMember(Guid userId, bool isSelected)
+	{
+		editSelectedMembers[userId] = isSelected;
+
+		if (!isSelected)
+		{
+			editMemberShares[userId] = 0;
+		}
+
+		SplitEditEqually();
+	}
+
+	private void SplitEditEqually()
+	{
+		var activeMembers = editSelectedMembers
+			.Where(x => x.Value)
+			.Select(x => x.Key)
+			.ToList();
+
+		if (activeMembers.Count == 0)
+			return;
+
+		var share = 100m / activeMembers.Count;
+
+		foreach (var member in members)
+		{
+			editMemberShares[member.UserId] =
+				activeMembers.Contains(member.UserId)
+					? share
+					: 0;
+		}
+	}
+
+	private async Task LoadExpenses()
+	{
+		var response = await Supabase
+			.From<SupabaseExpense>()
+			.Where(x => x.HouseholdId == HouseholdId)
+			.Get();
+
+		expenses = response.Models;
+	}
+
+	private async Task LoadSplits()
+	{
+		var response = await Supabase
+			.From<ExpenseSplit>()
+			.Get();
+
+		splits = response.Models;
+	}
+
+	private decimal GetMyBalance()
+	{
+		var user = Supabase.Auth.CurrentUser;
+
+		if (user == null)
+			return 0;
+
+		var myUserId = Guid.Parse(user.Id);
+
+		decimal paidByMe = expenses
+			.Where(x => x.PaidByUserId == myUserId)
+			.Sum(x => x.Amount);
+
+		decimal myShare = 0;
+
+		foreach (var split in splits.Where(x => x.UserId == myUserId))
+		{
+			var expense = expenses.FirstOrDefault(x => x.Id == split.ExpenseId);
+
+			if (expense != null)
+			{
+				myShare += expense.Amount * (split.SharePercent / 100m);
+			}
+		}
+
+		return paidByMe - myShare;
+	}
+
+	private async Task AddExpense()
+	{
+		errorMessage = "";
+
+		if (newAmount <= 0)
+		{
+			errorMessage = "Kwota musi być większa od zera.";
+			return;
+		}
+
+		if (string.IsNullOrWhiteSpace(newDescription))
+		{
+			errorMessage = "Podaj opis wydatku.";
+			return;
+		}
+
+		var user = Supabase.Auth.CurrentUser;
+
+		if (user == null)
+		{
+			errorMessage = "Brak zalogowanego użytkownika.";
+			return;
+		}
+
+		var selected = selectedMembers
+			.Where(x => x.Value)
+			.Select(x => x.Key)
+			.ToList();
+
+		if (selected.Count == 0)
+		{
+			errorMessage = "Wybierz przynajmniej jedną osobę do podziału.";
+			return;
+		}
+
+		var totalShare = selected.Sum(userId => memberShares[userId]);
+
+		if (Math.Abs(totalShare - 100m) > 0.01m)
+		{
+			errorMessage =
+				$"Suma udziałów musi wynosić 100%. Teraz: {totalShare:0.##}%.";
+
+			return;
+		}
+
+		var splitData = selected
+			.Select(userId => new
+			{
+				user_id = userId,
+				share_percent = memberShares[userId]
+			})
+			.ToList();
+
+		try
+		{
+			await Supabase.Rpc(
+				"create_expense",
+				new
+				{
+					input_household_id = HouseholdId,
+					input_date = DateTime.UtcNow,
+					input_amount = newAmount,
+					input_description = newDescription,
+					input_category = newCategory,
+					input_paid_by_user_id = selectedPayerId,
+					input_splits = splitData
+				}
+			);
+
+			newAmount = 0;
+			newDescription = "";
+			newCategory = "Food";
+
+			await LoadExpenses();
+			await LoadSplits();
+		}
+		catch (Exception ex)
+		{
+			errorMessage = ex.Message;
+		}
+	}
+
+	private string GetPayerLabel(SupabaseExpense expense)
+	{
+		return GetMemberLabel(expense.PaidByUserId);
+	}
+
+	private List<(string Label, decimal Percent, decimal Amount)> GetExpenseSplitDetails(
+		SupabaseExpense expense)
+	{
+		return splits
+			.Where(x => x.ExpenseId == expense.Id)
+			.Select(split =>
+			{
+				var amount = expense.Amount * (split.SharePercent / 100m);
+
+				return (
+					Label: GetMemberLabel(split.UserId),
+					Percent: split.SharePercent,
+					Amount: amount
+				);
+			})
+			.ToList();
+	}
+
+	private class Settlement
+	{
+		public Guid OtherUserId { get; set; }
+		public decimal Amount { get; set; }
+	}
+
+	private List<Settlement> GetMySettlements()
+	{
+		var user = Supabase.Auth.CurrentUser;
+
+		if (user == null)
+			return new();
+
+		var myUserId = Guid.Parse(user.Id);
+
+		var balances = members.ToDictionary(
+			x => x.UserId,
+			x => 0m
+		);
+
+		foreach (var expense in expenses)
+		{
+			var expenseSplits = splits
+				.Where(x => x.ExpenseId == expense.Id)
+				.ToList();
+
+			foreach (var split in expenseSplits)
+			{
+				var owedAmount =
+					expense.Amount * (split.SharePercent / 100m);
+
+				if (split.UserId == expense.PaidByUserId)
+					continue;
+
+				if (expense.PaidByUserId == myUserId)
+				{
+					balances[split.UserId] += owedAmount;
+				}
+				else if (split.UserId == myUserId)
+				{
+					balances[expense.PaidByUserId] -= owedAmount;
+				}
+			}
+		}
+
+		return balances
+			.Where(x => x.Key != myUserId && Math.Abs(x.Value) > 0.01m)
+			.Select(x => new Settlement
+			{
+				OtherUserId = x.Key,
+				Amount = x.Value
+			})
+			.ToList();
+	}
+
+	private void StartEdit(SupabaseExpense expense)
+	{
+		editingExpenseId = expense.Id;
+		editDescription = expense.Description;
+		editAmount = expense.Amount;
+		editPayerId = expense.PaidByUserId;
+
+		editSelectedMembers.Clear();
+		editMemberShares.Clear();
+
+		foreach (var member in members)
+		{
+			var split = splits.FirstOrDefault(x =>
+				x.ExpenseId == expense.Id &&
+				x.UserId == member.UserId);
+
+			if (split != null)
+			{
+				editSelectedMembers[member.UserId] = true;
+				editMemberShares[member.UserId] = split.SharePercent;
+			}
+			else
+			{
+				editSelectedMembers[member.UserId] = false;
+				editMemberShares[member.UserId] = 0;
+			}
+		}
+	}
+
+	private void CancelEdit()
+	{
+		editingExpenseId = null;
+	}
+
+	private async Task SaveEdit(SupabaseExpense expense)
+	{
+		errorMessage = "";
+
+		if (editAmount <= 0)
+		{
+			errorMessage = "Kwota musi być większa od zera.";
+			return;
+		}
+
+		if (string.IsNullOrWhiteSpace(editDescription))
+		{
+			errorMessage = "Podaj opis wydatku.";
+			return;
+		}
+
+		var selected = editSelectedMembers
+			.Where(x => x.Value)
+			.Select(x => x.Key)
+			.ToList();
+
+		if (selected.Count == 0)
+		{
+			errorMessage = "Wybierz przynajmniej jedną osobę do podziału.";
+			return;
+		}
+
+		var totalShare = selected.Sum(userId => editMemberShares[userId]);
+
+		if (Math.Abs(totalShare - 100m) > 0.01m)
+		{
+			errorMessage =
+				$"Suma udziałów musi wynosić 100%. Teraz: {totalShare:0.##}%.";
+
+			return;
+		}
+
+		var splitData = selected
+			.Select(userId => new Dictionary<string, object>
+			{
+				["user_id"] = userId,
+				["share_percent"] = editMemberShares[userId]
+			})
+			.ToList();
+
+		var parameters = new Dictionary<string, object>
+		{
+			["input_expense_id"] = expense.Id,
+			["input_amount"] = editAmount,
+			["input_description"] = editDescription,
+			["input_paid_by_user_id"] = editPayerId,
+			["input_splits"] = splitData
+		};
+
+		try
+		{
+			await Supabase.Rpc(
+				"update_expense",
+				parameters
+			);
+
+			editingExpenseId = null;
+
+			await LoadExpenses();
+			await LoadSplits();
+		}
+		catch (Exception ex)
+		{
+			errorMessage = ex.Message;
+		}
+	}
+
+	private async Task DeleteExpense(SupabaseExpense expense)
+	{
+		await Supabase
+			.From<SupabaseExpense>()
+			.Delete(expense);
+
+		await LoadExpenses();
+	}
+}

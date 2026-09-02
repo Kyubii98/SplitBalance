@@ -1,0 +1,135 @@
+﻿@using Balance.Models
+@page "/households"
+@inject Supabase.Client Supabase
+@inject NavigationManager Navigation
+
+<h1>Household</h1>
+
+@if (households.Count == 0)
+{
+	<p>Nie należysz jeszcze do żadnego household.</p>
+}
+else
+{
+	<h3>Twoje householdy</h3>
+
+	<div class="household-grid">
+		@foreach (var household in households)
+		{
+			<div class="household-card"
+				 @onclick="() => OpenHousehold(household.Id)">
+
+				<div>
+					<h3>@household.Name</h3>
+
+					<p>
+						Kod: <strong>@household.JoinCode</strong>
+					</p>
+				</div>
+
+				<span class="household-arrow">›</span>
+
+			</div>
+		}
+	</div>
+}
+
+<input placeholder="Nazwa household"
+	   @bind="householdName" />
+
+<button @onclick="CreateHousehold">
+	Stwórz household
+</button>
+
+<hr />
+
+<h3>Dołącz do household</h3>
+
+<input placeholder="Kod household"
+	   @bind="joinCode" />
+
+<button @onclick="JoinHousehold">
+	Dołącz
+</button>
+
+<p>@message</p>
+
+@code {
+	private string householdName = "";
+	private string message = "";
+	private string joinCode = "";
+
+	private List<Household> households = new();
+
+	private void OpenHousehold(Guid householdId)
+	{
+		Navigation.NavigateTo($"/household/{householdId}");
+	}
+
+	protected override async Task OnInitializedAsync()
+	{
+		await LoadHouseholds();
+	}
+
+	private async Task CreateHousehold()
+	{
+		try
+		{
+			var response = await Supabase.Rpc(
+				"create_household",
+				new
+				{
+					household_name = householdName
+				}
+			);
+
+			message = "Household utworzony!";
+
+			await LoadHouseholds();
+		}
+		catch (Exception ex)
+		{
+			message = ex.Message;
+		}
+	}
+
+	private async Task LoadHouseholds()
+	{
+		try
+		{
+			var response = await Supabase
+				.From<Household>()
+				.Get();
+
+			households = response.Models;
+		}
+		catch (Exception ex)
+		{
+			message = ex.Message;
+		}
+	}
+
+
+	private async Task JoinHousehold()
+	{
+		try
+		{
+			await Supabase.Rpc(
+				"join_household",
+				new
+				{
+					input_join_code = joinCode
+				}
+			);
+
+			message = "Dołączono do household!";
+
+			await LoadHouseholds();
+		}
+		catch (Exception ex)
+		{
+			message = ex.Message;
+		}
+	}
+
+}

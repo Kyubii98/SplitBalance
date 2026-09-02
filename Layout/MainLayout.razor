@@ -1,5 +1,49 @@
 ﻿@inherits LayoutComponentBase
+@inject Supabase.Client Supabase
+@inject NavigationManager Navigation
 
-<main class="app-container">
-    @Body
-</main>
+<div class="app-shell">
+
+    <header class="topbar">
+        <div class="brand" @onclick="GoHome">
+            Balance
+        </div>
+
+        @if (Supabase.Auth.CurrentUser != null)
+        {
+            <div class="user-area">
+                <span>@Supabase.Auth.CurrentUser.Email</span>
+
+                <button @onclick="Logout">
+                    Wyloguj
+                </button>
+            </div>
+        }
+    </header>
+
+    <main class="main-content">
+        @Body
+    </main>
+
+</div>
+
+@code {
+    private void GoHome()
+    {
+        if (Supabase.Auth.CurrentUser != null)
+        {
+            Navigation.NavigateTo("/households");
+        }
+        else
+        {
+            Navigation.NavigateTo("/login");
+        }
+    }
+
+    private async Task Logout()
+    {
+        await Supabase.Auth.SignOut();
+
+        Navigation.NavigateTo("/login");
+    }
+}

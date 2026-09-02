@@ -1,0 +1,19 @@
+﻿@page "/"
+@inject Supabase.Client Supabase
+@inject NavigationManager Navigation
+
+<p>Ładowanie...</p>
+
+@code {
+    protected override void OnInitialized()
+    {
+        if (Supabase.Auth.CurrentUser != null)
+        {
+            Navigation.NavigateTo("/households");
+        }
+        else
+        {
+            Navigation.NavigateTo("/login");
+        }
+    }
+}
