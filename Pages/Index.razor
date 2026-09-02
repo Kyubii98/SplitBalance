@@ -9,11 +9,11 @@
     {
         if (Supabase.Auth.CurrentUser != null)
         {
-            Navigation.NavigateTo("/households");
+            Navigation.NavigateTo("households");
         }
         else
         {
-            Navigation.NavigateTo("/login");
+            Navigation.NavigateTo("login");
         }
     }
 }
